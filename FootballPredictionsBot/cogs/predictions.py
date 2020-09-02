@@ -168,47 +168,28 @@ class Predictions(commands.Cog):
         results = self.bot.data_interface.get_results_by_league(league.id)
         predictions = self.bot.data_interface.get_predictions_by_league(league.id)
 
-        internal_scores = {}
-        final_scores = {}
+        scores = {}
         user_info = {"points": 0, "results": 0, "scores": 0}
 
-        # Backload scores from a different predictions site
-        with open(env.get_cfg("SPFL_SCORES")) as f:
-            spfl_scores = json.load(f)
-
         for prediction in [p for p in predictions if p.fixture in results]:
+            user_details = ctx.bot.get_user(prediction.user.discord_id)
+
+            if user_details is None:
+                continue
+
+            username = f"{user_details.name}#{user_details.discriminator}"
             prediction_result = PredictionOutcome.determine_outcome(prediction, prediction.fixture)
 
             if prediction_result == PredictionOutcome.SCORE:
-                internal_scores.setdefault(prediction.user, user_info.copy())["points"] += PredictionOutcome.SCORE.value
-                internal_scores[prediction.user]["scores"] += 1
+                scores.setdefault(username, user_info.copy())["points"] += PredictionOutcome.SCORE.value
+                scores[username]["scores"] += 1
             elif prediction_result == PredictionOutcome.RESULT:
-                internal_scores.setdefault(prediction.user, user_info.copy())["points"] += PredictionOutcome.RESULT.value
-                internal_scores[prediction.user]["results"] += 1
+                scores.setdefault(username, user_info.copy())["points"] += PredictionOutcome.RESULT.value
+                scores[username]["results"] += 1
             elif prediction_result == PredictionOutcome.INCORRECT:
-                internal_scores.setdefault(prediction.user, user_info.copy())
+                scores.setdefault(username, user_info.copy())
 
-        for user, values in internal_scores.items():
-            env.log.info(internal_scores)
-            user_info = ctx.bot.get_user(user.discord_id)
-            final_scores[f"{user_info.name}#{user_info.discriminator}"] = values
-
-        # Combine scores from a different predictions site
-        for user, values in spfl_scores.items():
-            points = (values["scores"] * PredictionOutcome.SCORE.value) + (
-                        values["results"] * PredictionOutcome.RESULT.value)
-            if user in final_scores.keys():
-                final_scores[user]["scores"] += values["scores"]
-                final_scores[user]["results"] += values["results"]
-                final_scores[user]["points"] += points
-            else:
-                final_scores[user] = {
-                    "scores": values["scores"],
-                    "results": values["results"],
-                    "points": points
-                }
-
-        embed = embed_formatter.generate_leaderboard_embed(final_scores, table=table)
+        embed = embed_formatter.generate_leaderboard_embed(scores, table=table)
         embed.title = f"Leaderboard for {league.name} predictions"
         await ctx.send(embed=embed)
 
